@@ -201,6 +201,22 @@
   chatToggle.addEventListener('click', openChat);
   chatCollapseBtn.addEventListener('click', closeChat);
 
+  // ---------- Host: clear chat (gated by a secret admin key) ----------
+  let adminKey = null;
+  try {
+    const q = new URLSearchParams(location.search).get('admin');
+    if (q) localStorage.setItem('wwdc_admin', q);
+    adminKey = localStorage.getItem('wwdc_admin');
+  } catch (_e) {}
+  const clearBtn = document.getElementById('clear-chat');
+  if (clearBtn && adminKey) {
+    clearBtn.hidden = false;
+    clearBtn.addEventListener('click', () => {
+      if (!confirm('Clear the ENTIRE chat for everyone? This wipes the log and cannot be undone.')) return;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'clearchat', key: adminKey }));
+    });
+  }
+
   // ---------- WebSocket ----------
   let ws;
   let reconnectTimer = null;
@@ -263,6 +279,12 @@
       case 'myreact':
         applyMine(msg.id, msg.emoji, msg.active);
         break;
+      case 'delete':
+        removeMessage(msg.id);
+        break;
+      case 'cleared':
+        clearAllMessages();
+        break;
       case 'reaction':
         floatEmoji(msg.emoji);
         break;
@@ -298,6 +320,7 @@
     div.appendChild(what);
 
     if (msg.id) {
+      if (mine) div.appendChild(buildDeleteButton(msg.id));
       div.appendChild(buildReactBar(msg.id));
       const chips = document.createElement('div');
       chips.className = 'msg-reactions';
@@ -340,6 +363,32 @@
 
   function sendMsgReact(id, emoji) {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'msgreact', id, emoji }));
+  }
+
+  // Delete-your-own-message button (× on hover of your own messages).
+  function buildDeleteButton(id) {
+    const btn = document.createElement('button');
+    btn.className = 'del-btn';
+    btn.type = 'button';
+    btn.title = 'Delete message';
+    btn.textContent = '×';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete this message?')) return;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'delete', id }));
+    });
+    return btn;
+  }
+
+  function removeMessage(id) {
+    const el = msgEls.get(id);
+    if (el) { el.remove(); msgEls.delete(id); }
+  }
+
+  function clearAllMessages() {
+    messagesEl.textContent = '';
+    msgEls.clear();
+    addSystem('Chat was cleared by the host.');
   }
 
   // Find or create a reaction chip (emoji + count). Clicking it toggles.
