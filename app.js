@@ -45,6 +45,7 @@
     if (cfg.title) document.title = cfg.title;
 
     const url = (cfg.streamUrl || '').trim();
+    const recording = cfg.mode === 'recording';
     if (!url) {
       // No stream yet — keep the standby screen, hide playback affordances.
       unmuteBtn.classList.add('hidden');
@@ -54,9 +55,60 @@
     started = true;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 
+    if (recording) startRecording(url);
+    else startLive(url);
+  }
+
+  // Live channel: muted autoplay, no controls, snap to the live edge.
+  function startLive(url) {
     standby.classList.add('hidden');
     unmuteBtn.classList.remove('hidden');
-    attach(url);
+    attach(url, true);
+  }
+
+  // After the event: a normal video player with full controls + sound.
+  function startRecording(url) {
+    document.body.classList.add('recording');
+    unmuteBtn.classList.add('hidden');
+    video.controls = true;
+    video.removeAttribute('autoplay');
+    video.muted = false;
+    video.style.pointerEvents = 'auto';
+    const badge = document.querySelector('.live-badge');
+    if (badge) { badge.classList.add('replay'); badge.textContent = 'REPLAY'; }
+    const h2 = document.querySelector('.chat-head h2');
+    if (h2) h2.textContent = 'Chat';
+    attach(url, false);
+    showEndedStandby();
+  }
+
+  function showEndedStandby() {
+    standby.classList.remove('hidden');
+    standby.textContent = '';
+    const card = document.createElement('div');
+    card.className = 'standby-card';
+    const logo = document.createElement('div');
+    logo.className = 'standby-logo';
+    logo.textContent = '🍎';
+    const h1 = document.createElement('h1');
+    h1.textContent = "That's a wrap";
+    const sub = document.createElement('p');
+    sub.className = 'standby-sub';
+    sub.textContent = 'The keynote has ended';
+    const hint = document.createElement('p');
+    hint.className = 'standby-hint';
+    hint.textContent = 'Watch the full recording below — with playback and volume controls.';
+    const btn = document.createElement('button');
+    btn.className = 'play-btn';
+    btn.type = 'button';
+    btn.textContent = '▶  Watch the recording';
+    btn.addEventListener('click', () => {
+      standby.classList.add('hidden');
+      video.muted = false;
+      video.play().catch(() => {});
+    });
+    card.append(logo, h1, sub, hint, btn);
+    standby.appendChild(card);
   }
 
   function initStream() {
@@ -66,19 +118,19 @@
     pollTimer = setInterval(() => { if (!started) checkConfig(); }, 10000);
   }
 
-  function attach(url) {
+  function attach(url, isLive) {
     const isM3u8 = /\.m3u8(\?|$)/i.test(url);
 
     if (isM3u8 && window.Hls && window.Hls.isSupported()) {
       if (hls) { hls.destroy(); hls = null; }
       hls = new Hls({
-        lowLatencyMode: true,
+        lowLatencyMode: isLive,
         liveSyncDurationCount: 3,
         enableWorker: true,
       });
       hls.loadSource(url);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => seekToLiveAndPlay());
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { if (isLive) seekToLiveAndPlay(); });
       hls.on(Hls.Events.ERROR, (_evt, data) => {
         if (!data.fatal) return;
         switch (data.type) {
@@ -90,13 +142,13 @@
             break;
           default:
             // Unrecoverable — try a full reattach shortly.
-            setTimeout(() => attach(url), 3000);
+            setTimeout(() => attach(url, isLive), 3000);
         }
       });
     } else {
       // Native HLS (Safari) or a plain video URL.
       video.src = url;
-      video.addEventListener('loadedmetadata', seekToLiveAndPlay, { once: true });
+      if (isLive) video.addEventListener('loadedmetadata', seekToLiveAndPlay, { once: true });
     }
   }
 
@@ -246,7 +298,7 @@
     div.appendChild(what);
 
     if (msg.id) {
-      div.appendChild(buildReactButton(msg.id));
+      div.appendChild(buildReactBar(msg.id));
       const chips = document.createElement('div');
       chips.className = 'msg-reactions';
       div.appendChild(chips);
@@ -268,39 +320,22 @@
     if (stick) messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  // Small "react" button that toggles an emoji palette popover for a message.
-  let openPop = null;
-  function closePop() { if (openPop) { openPop.remove(); openPop = null; } }
-  document.addEventListener('click', closePop);
-
-  function buildReactButton(id) {
-    const btn = document.createElement('button');
-    btn.className = 'react-btn';
-    btn.title = 'Add reaction';
-    btn.textContent = '☺';
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const wasOpen = openPop && openPop.dataset.for === id;
-      closePop();
-      if (wasOpen) return;
-      const pop = document.createElement('div');
-      pop.className = 'react-pop';
-      pop.dataset.for = id;
-      EMOJI.forEach((emoji) => {
-        const b = document.createElement('button');
-        b.textContent = emoji;
-        b.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          sendMsgReact(id, emoji);
-          closePop();
-        });
-        pop.appendChild(b);
+  // Slack-style floating quick-reaction bar that appears above a message on hover.
+  function buildReactBar(id) {
+    const bar = document.createElement('div');
+    bar.className = 'react-bar';
+    EMOJI.forEach((emoji) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = emoji;
+      b.title = 'React ' + emoji;
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        sendMsgReact(id, emoji);
       });
-      pop.addEventListener('click', (ev) => ev.stopPropagation());
-      btn.parentElement.appendChild(pop);
-      openPop = pop;
+      bar.appendChild(b);
     });
-    return btn;
+    return bar;
   }
 
   function sendMsgReact(id, emoji) {
@@ -364,12 +399,19 @@
     if (stick) messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  // Disable the send button until there's something to send.
+  const sendBtn = document.getElementById('send-btn');
+  function syncSendBtn() { sendBtn.disabled = chatInput.value.trim() === ''; }
+  chatInput.addEventListener('input', syncSendBtn);
+  syncSendBtn();
+
   chatForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = chatInput.value.trim();
     if (!text || !ws || ws.readyState !== 1) return;
     ws.send(JSON.stringify({ type: 'chat', text }));
     chatInput.value = '';
+    syncSendBtn();
   });
 
   // ---------- Emoji reactions ----------
