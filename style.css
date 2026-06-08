@@ -346,6 +346,12 @@ html, body {
   user-select: none;
 }
 .chip:hover { background: rgba(255,255,255,0.16); }
+.chip.mine {
+  background: rgba(10,132,255,0.22);
+  border-color: var(--accent2);
+  color: #fff;
+}
+.chip.mine:hover { background: rgba(10,132,255,0.32); }
 .chip.bump { animation: chipBump .3s ease; }
 @keyframes chipBump { 0%{transform:scale(1)} 40%{transform:scale(1.35)} 100%{transform:scale(1)} }
 

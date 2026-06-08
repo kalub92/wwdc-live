@@ -208,6 +208,9 @@
       case 'msgreact':
         applyReaction(msg.id, msg.emoji, msg.count);
         break;
+      case 'myreact':
+        applyMine(msg.id, msg.emoji, msg.active);
+        break;
       case 'reaction':
         floatEmoji(msg.emoji);
         break;
@@ -248,7 +251,15 @@
       chips.className = 'msg-reactions';
       div.appendChild(chips);
       if (msg.reactions) {
-        Object.keys(msg.reactions).forEach((emoji) => setChip(chips, msg.id, emoji, msg.reactions[emoji], false));
+        const mine = Array.isArray(msg.mine) ? msg.mine : [];
+        Object.keys(msg.reactions).forEach((emoji) => {
+          const count = msg.reactions[emoji];
+          if (count > 0) {
+            const chip = ensureChip(chips, msg.id, emoji);
+            setCount(chip, count, false);
+            chip.classList.toggle('mine', mine.indexOf(emoji) !== -1);
+          }
+        });
       }
       msgEls.set(msg.id, div);
     }
@@ -296,23 +307,27 @@
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'msgreact', id, emoji }));
   }
 
-  // Create or update a reaction chip; `bump` animates it on live updates.
-  function setChip(chipsEl, id, emoji, count, bump) {
+  // Find or create a reaction chip (emoji + count). Clicking it toggles.
+  function ensureChip(chipsEl, id, emoji) {
     let chip = chipsEl.querySelector('[data-emoji="' + emoji + '"]');
     if (!chip) {
       chip = document.createElement('span');
       chip.className = 'chip';
       chip.dataset.emoji = emoji;
+      const e = document.createElement('span');
+      e.textContent = emoji;
+      const n = document.createElement('span');
+      n.className = 'cn';
+      chip.appendChild(e);
+      chip.appendChild(n);
       chip.addEventListener('click', () => sendMsgReact(id, emoji));
       chipsEl.appendChild(chip);
     }
-    chip.textContent = '';
-    const e = document.createElement('span');
-    e.textContent = emoji;
-    const n = document.createElement('span');
-    n.textContent = String(count);
-    chip.appendChild(e);
-    chip.appendChild(n);
+    return chip;
+  }
+
+  function setCount(chip, count, bump) {
+    chip.querySelector('.cn').textContent = String(count);
     if (bump) {
       chip.classList.remove('bump');
       void chip.offsetWidth; // restart animation
@@ -320,11 +335,24 @@
     }
   }
 
+  // Live count update for everyone; removes the chip when it hits zero.
   function applyReaction(id, emoji, count) {
     const div = msgEls.get(id);
     if (!div) return; // message not in view (older than window)
     const chips = div.querySelector('.msg-reactions');
-    if (chips) setChip(chips, id, emoji, count, true);
+    if (!chips) return;
+    let chip = chips.querySelector('[data-emoji="' + emoji + '"]');
+    if (count <= 0) { if (chip) chip.remove(); return; }
+    chip = ensureChip(chips, id, emoji);
+    setCount(chip, count, true);
+  }
+
+  // Highlight (or un-highlight) a chip as the current user's own reaction.
+  function applyMine(id, emoji, active) {
+    const div = msgEls.get(id);
+    if (!div) return;
+    const chip = div.querySelector('.msg-reactions [data-emoji="' + emoji + '"]');
+    if (chip) chip.classList.toggle('mine', active);
   }
 
   function addSystem(text) {
