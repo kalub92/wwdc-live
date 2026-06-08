@@ -483,6 +483,13 @@
     if (msg.id) {
       if (mine) div.appendChild(buildDeleteButton(msg.id));
       div.appendChild(buildReactBar(msg.id));
+      // Flip the quick-react bar below the message when there isn't room above
+      // (e.g. the topmost message), so it isn't clipped by the scroll container.
+      div.addEventListener('mouseenter', () => {
+        const m = div.getBoundingClientRect();
+        const c = messagesEl.getBoundingClientRect();
+        div.classList.toggle('react-below', (m.top - c.top) < 44);
+      });
       const chips = document.createElement('div');
       chips.className = 'msg-reactions';
       div.appendChild(chips);

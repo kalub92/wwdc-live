@@ -510,6 +510,8 @@ html, body {
   transition: opacity .14s ease, transform .16s cubic-bezier(.34,1.56,.64,1);
 }
 .msg:hover .react-bar { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+/* When there's no room above (e.g. the first message), drop the bar below it. */
+.msg.react-below .react-bar { bottom: auto; top: 100%; transform-origin: top right; }
 .react-bar button {
   border: none;
   background: transparent;
