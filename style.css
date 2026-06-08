@@ -429,14 +429,14 @@ html, body {
 /* Per-message reactions — Slack-style floating quick-react bar (on hover) */
 .react-bar {
   position: absolute;
-  top: -16px; right: 6px;
+  bottom: 100%; right: 6px;   /* bottom edge pinned to the top of the message */
   z-index: 9;
   display: flex;
   gap: 1px;
   padding: 4px 6px;
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
+  background: rgba(26, 28, 40, 0.94);   /* mostly opaque, just a hint of frost */
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
   border: 1px solid var(--glass-border);
   border-radius: 999px;
   box-shadow: var(--shadow), inset 0 1px 0 var(--glass-hi);
