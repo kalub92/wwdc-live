@@ -154,7 +154,11 @@
   let reconnectTimer = null;
 
   function connect() {
-    const wsUrl = BACKEND.replace(/^http/, 'ws');
+    let wsUrl = BACKEND.replace(/^http/, 'ws');
+    // Reuse our previous name so reconnects don't rename us.
+    let saved = null;
+    try { saved = localStorage.getItem('wwdc_name'); } catch (_e) {}
+    if (saved) wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'name=' + encodeURIComponent(saved);
     ws = new WebSocket(wsUrl);
 
     ws.addEventListener('open', () => {
@@ -187,6 +191,7 @@
     switch (msg.type) {
       case 'welcome':
         myName = msg.name;
+        try { localStorage.setItem('wwdc_name', myName); } catch (_e) {}
         meEl.textContent = 'You: ' + myName;
         setViewers(msg.viewers);
         if (Array.isArray(msg.history)) {
