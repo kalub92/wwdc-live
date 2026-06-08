@@ -34,6 +34,7 @@
   // ---------- Sessions (Keynote / Platforms State of the Union …) ----------
   let sessions = [];
   let activeId = null;
+  let activeMode = null;
   let appliedSig = '';        // mode|url currently attached, to avoid needless reattach
   let countdownTimer = null;
   const tabsEl = document.getElementById('tabs');
@@ -129,14 +130,12 @@
     document.body.classList.toggle('recording', s.mode === 'recording');
     setBadge(s.mode);
 
-    // Chat is per-session and only shown during live broadcasts.
-    if (s.mode === 'live') {
-      app.classList.remove('no-chat');
-      connectRoom(s.id);
-    } else {
-      app.classList.add('no-chat');
-      disconnectRoom();
-    }
+    activeMode = s.mode;
+    // Presence: always connect to the active session's room so the viewer count
+    // reflects real people on every tab (live or not). Chat panel visibility is
+    // decided separately (live by default; host can override).
+    connectRoom(s.id);
+    updateChatVisibility();
 
     if (s.mode === 'live' && url) {
       unmuteBtn.classList.remove('hidden');
@@ -309,20 +308,51 @@
   chatToggle.addEventListener('click', openChat);
   chatCollapseBtn.addEventListener('click', closeChat);
 
-  // ---------- Host: clear chat (gated by a secret admin key) ----------
+  // ---------- Host (admin) controls: clear + chat toggle ----------
   let adminKey = null;
   try {
     const q = new URLSearchParams(location.search).get('admin');
     if (q) localStorage.setItem('wwdc_admin', q);
     adminKey = localStorage.getItem('wwdc_admin');
   } catch (_e) {}
+  const isAdmin = !!adminKey;
+
+  // Host override for chat visibility: null = follow default (live-only).
+  let adminChatOverride = null;
+  try {
+    const v = localStorage.getItem('wwdc_chat_override');
+    if (v === 'show') adminChatOverride = true;
+    else if (v === 'hide') adminChatOverride = false;
+  } catch (_e) {}
+
   const clearBtn = document.getElementById('clear-chat');
-  if (clearBtn && adminKey) {
+  if (clearBtn && isAdmin) {
     clearBtn.style.display = 'flex'; // reveal (CSS hides #clear-chat by default)
     clearBtn.addEventListener('click', () => {
       if (!confirm('Clear the ENTIRE chat for everyone? This wipes the log and cannot be undone.')) return;
       if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'clearchat', key: adminKey }));
     });
+  }
+
+  const adminChatBtn = document.getElementById('admin-chat');
+  if (adminChatBtn && isAdmin) {
+    adminChatBtn.style.display = 'inline-flex'; // reveal (CSS hides it by default)
+    adminChatBtn.addEventListener('click', () => {
+      adminChatOverride = !chatShouldShow(); // flip current visibility
+      try { localStorage.setItem('wwdc_chat_override', adminChatOverride ? 'show' : 'hide'); } catch (_e) {}
+      updateChatVisibility();
+    });
+  }
+
+  // Chat panel visibility: live by default; the host can force show/hide.
+  function chatShouldShow() {
+    if (isAdmin && adminChatOverride !== null) return adminChatOverride;
+    return activeMode === 'live';
+  }
+  function updateChatVisibility() {
+    const show = chatShouldShow();
+    app.classList.toggle('no-chat', !show);
+    if (adminChatBtn) adminChatBtn.textContent = show ? '💬 Hide chat' : '💬 Show chat';
   }
 
   // ---------- WebSocket (per-room chat) ----------
