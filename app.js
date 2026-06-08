@@ -129,6 +129,15 @@
     document.body.classList.toggle('recording', s.mode === 'recording');
     setBadge(s.mode);
 
+    // Chat is per-session and only shown during live broadcasts.
+    if (s.mode === 'live') {
+      app.classList.remove('no-chat');
+      connectRoom(s.id);
+    } else {
+      app.classList.add('no-chat');
+      disconnectRoom();
+    }
+
     if (s.mode === 'live' && url) {
       unmuteBtn.classList.remove('hidden');
       video.controls = false;
@@ -309,48 +318,70 @@
   } catch (_e) {}
   const clearBtn = document.getElementById('clear-chat');
   if (clearBtn && adminKey) {
-    clearBtn.hidden = false;
+    clearBtn.style.display = 'flex'; // reveal (CSS hides #clear-chat by default)
     clearBtn.addEventListener('click', () => {
       if (!confirm('Clear the ENTIRE chat for everyone? This wipes the log and cannot be undone.')) return;
       if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'clearchat', key: adminKey }));
     });
   }
 
-  // ---------- WebSocket ----------
-  let ws;
+  // ---------- WebSocket (per-room chat) ----------
+  let ws = null;
+  let currentRoom = null;   // room we want to be connected to (null = chat off)
+  let chatWanted = false;
   let reconnectTimer = null;
 
+  function clearMessages() { messagesEl.textContent = ''; msgEls.clear(); }
+
+  // Connect to (or switch to) a chat room. No-op if already on it.
+  function connectRoom(room) {
+    if (chatWanted && currentRoom === room && ws && ws.readyState <= 1) return;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (ws) { const old = ws; ws = null; try { old.close(); } catch (_e) {} }
+    currentRoom = room;
+    chatWanted = true;
+    clearMessages();
+    connect();
+  }
+
+  // Leave chat entirely (used when the active session isn't live).
+  function disconnectRoom() {
+    chatWanted = false;
+    currentRoom = null;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (ws) { const old = ws; ws = null; try { old.close(); } catch (_e) {} }
+    clearMessages();
+    setViewers(0);
+  }
+
   function connect() {
-    let wsUrl = BACKEND.replace(/^http/, 'ws');
-    // Reuse our previous name so reconnects don't rename us.
+    let url = BACKEND.replace(/^http/, 'ws');
+    const qp = [];
     let saved = null;
     try { saved = localStorage.getItem('wwdc_name'); } catch (_e) {}
-    if (saved) wsUrl += (wsUrl.includes('?') ? '&' : '?') + 'name=' + encodeURIComponent(saved);
-    ws = new WebSocket(wsUrl);
+    if (saved) qp.push('name=' + encodeURIComponent(saved));   // sticky username across rooms
+    if (currentRoom) qp.push('room=' + encodeURIComponent(currentRoom));
+    if (qp.length) url += '?' + qp.join('&');
 
-    ws.addEventListener('open', () => {
-      addSystem('Connected to the watch party.');
-    });
-
-    ws.addEventListener('message', (ev) => {
+    const sock = new WebSocket(url);
+    ws = sock;
+    sock.addEventListener('open', () => { addSystem('Connected to the chat.'); });
+    sock.addEventListener('message', (ev) => {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       handle(msg);
     });
-
-    ws.addEventListener('close', () => {
-      addSystem('Disconnected. Reconnecting…');
-      scheduleReconnect();
+    sock.addEventListener('close', () => {
+      if (sock === ws && chatWanted) { addSystem('Disconnected. Reconnecting…'); scheduleReconnect(); }
     });
-
-    ws.addEventListener('error', () => { try { ws.close(); } catch (_e) {} });
+    sock.addEventListener('error', () => { try { sock.close(); } catch (_e) {} });
   }
 
   function scheduleReconnect() {
     if (reconnectTimer) return;
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      connect();
+      if (chatWanted) connect();
     }, 1500);
   }
 
@@ -361,6 +392,7 @@
         try { localStorage.setItem('wwdc_name', myName); } catch (_e) {}
         meEl.textContent = 'You: ' + myName;
         setViewers(msg.viewers);
+        clearMessages(); // fresh room (or reconnect) — avoid stale/duplicate history
         if (Array.isArray(msg.history)) {
           msg.history.forEach((m) => addChat(m, true));
         }
@@ -581,5 +613,4 @@
 
   // ---------- Go ----------
   startSessions();
-  connect();
 })();

@@ -532,10 +532,14 @@ html, body {
   border-radius: 50%;
   background: transparent;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1;
+  padding: 0;
   cursor: pointer;
   opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: opacity .15s ease, color .15s ease, background .15s ease;
 }
 .msg.mine:hover .del-btn { opacity: 1; }
@@ -698,6 +702,26 @@ body.recording #fullscreen { display: none; } /* native player controls include 
 }
 .play-btn:hover { transform: translateY(-2px) scale(1.03); filter: brightness(1.1); }
 .play-btn:active { transform: scale(0.97); }
+
+/* ---------- Loading spinner (shown until session state is known) ---------- */
+.loader {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.16);
+  border-top-color: var(--accent2);
+  animation: spin .8s linear infinite;
+  box-shadow: 0 0 24px rgba(10,132,255,0.25);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Clear-chat button (host only; revealed by JS) ---------- */
+#clear-chat { display: none; }
+
+/* ---------- Chat hidden unless the active session is live ---------- */
+#app.no-chat { grid-template-columns: 1fr; }
+#app.no-chat #chat { display: none; }
+#app.no-chat #chat-toggle { display: none; }
 
 /* ---------- Respect reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
