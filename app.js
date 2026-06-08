@@ -374,7 +374,9 @@
   // Chat panel visibility: live by default; the host can force show/hide.
   function chatShouldShow() {
     if (isAdmin && adminChatOverride !== null) return adminChatOverride;
-    return activeMode === 'live';
+    // Show during live broadcasts and while waiting for an upcoming session
+    // (hang out + chat before it starts); hidden for async recordings.
+    return activeMode === 'live' || activeMode === 'upcoming';
   }
   function updateChatVisibility() {
     const show = chatShouldShow();
