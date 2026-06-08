@@ -1,0 +1,15 @@
+{
+  "name": "wwdc-live",
+  "version": "1.0.0",
+  "description": "Live TV-style watch party for the WWDC livestream, with chat and emoji reactions.",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "deploy": "git subtree push --prefix public origin gh-pages"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
