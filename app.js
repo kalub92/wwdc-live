@@ -6,6 +6,8 @@
   const unmuteBtn = document.getElementById('unmute');
   const fullscreenBtn = document.getElementById('fullscreen');
   const chatToggle = document.getElementById('chat-toggle');
+  const chatCollapseBtn = document.getElementById('chat-collapse');
+  const chatBadge = document.getElementById('chat-badge');
   const chat = document.getElementById('chat');
   const app = document.getElementById('app');
   const messagesEl = document.getElementById('messages');
@@ -15,10 +17,17 @@
   const chatForm = document.getElementById('chat-form');
   const chatInput = document.getElementById('chat-input');
 
+  const EMOJI = ['👏', '🔥', '❤️', '😂', '🎉', '🤯'];
+
   let myName = '';
   let hls = null;
   let started = false;
   let pollTimer = null;
+
+  // Chat open/closed + unread tracking
+  let chatOpen = window.innerWidth > 820;
+  let unread = 0;
+  const msgEls = new Map(); // id -> message element (for live reaction updates)
 
   // Backend base (Mac via Cloudflare tunnel) when served from GitHub Pages;
   // falls back to same origin when the Mac serves the page directly.
@@ -122,8 +131,23 @@
     }
   });
 
-  // ---------- Chat panel toggle (mobile / small screens) ----------
-  chatToggle.addEventListener('click', () => chat.classList.toggle('open'));
+  // ---------- Chat collapse / reopen ----------
+  function applyChatState() {
+    app.classList.toggle('chat-collapsed', !chatOpen);
+  }
+  function openChat() {
+    chatOpen = true;
+    unread = 0;
+    chatBadge.textContent = '';
+    applyChatState();
+  }
+  function closeChat() {
+    chatOpen = false;
+    applyChatState();
+  }
+  applyChatState(); // set initial state (desktop open, mobile collapsed)
+  chatToggle.addEventListener('click', openChat);
+  chatCollapseBtn.addEventListener('click', closeChat);
 
   // ---------- WebSocket ----------
   let ws;
@@ -166,11 +190,18 @@
         meEl.textContent = 'You: ' + myName;
         setViewers(msg.viewers);
         if (Array.isArray(msg.history)) {
-          msg.history.forEach((m) => addChat(m.name, m.text, m.name === myName));
+          msg.history.forEach((m) => addChat(m, true));
         }
         break;
       case 'chat':
-        addChat(msg.name, msg.text, msg.name === myName);
+        addChat(msg, false);
+        if (msg.name !== myName && !chatOpen) {
+          unread += 1;
+          chatBadge.textContent = unread > 99 ? '99+' : String(unread);
+        }
+        break;
+      case 'msgreact':
+        applyReaction(msg.id, msg.emoji, msg.count);
         break;
       case 'reaction':
         floatEmoji(msg.emoji);
@@ -190,20 +221,105 @@
     return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
   }
 
-  function addChat(name, text, mine) {
+  function addChat(msg, isHistory) {
     const stick = nearBottom();
+    const mine = msg.name === myName;
     const div = document.createElement('div');
     div.className = 'msg' + (mine ? ' mine' : '');
+    if (msg.id) div.dataset.id = msg.id;
+
     const who = document.createElement('span');
     who.className = 'who';
-    who.textContent = name;
+    who.textContent = msg.name;
     const what = document.createElement('span');
     what.className = 'what';
-    what.textContent = text;
+    what.textContent = msg.text;
     div.appendChild(who);
     div.appendChild(what);
+
+    if (msg.id) {
+      div.appendChild(buildReactButton(msg.id));
+      const chips = document.createElement('div');
+      chips.className = 'msg-reactions';
+      div.appendChild(chips);
+      if (msg.reactions) {
+        Object.keys(msg.reactions).forEach((emoji) => setChip(chips, msg.id, emoji, msg.reactions[emoji], false));
+      }
+      msgEls.set(msg.id, div);
+    }
+
     messagesEl.appendChild(div);
     if (stick) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // Small "react" button that toggles an emoji palette popover for a message.
+  let openPop = null;
+  function closePop() { if (openPop) { openPop.remove(); openPop = null; } }
+  document.addEventListener('click', closePop);
+
+  function buildReactButton(id) {
+    const btn = document.createElement('button');
+    btn.className = 'react-btn';
+    btn.title = 'Add reaction';
+    btn.textContent = '☺';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasOpen = openPop && openPop.dataset.for === id;
+      closePop();
+      if (wasOpen) return;
+      const pop = document.createElement('div');
+      pop.className = 'react-pop';
+      pop.dataset.for = id;
+      EMOJI.forEach((emoji) => {
+        const b = document.createElement('button');
+        b.textContent = emoji;
+        b.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          sendMsgReact(id, emoji);
+          closePop();
+        });
+        pop.appendChild(b);
+      });
+      pop.addEventListener('click', (ev) => ev.stopPropagation());
+      btn.parentElement.appendChild(pop);
+      openPop = pop;
+    });
+    return btn;
+  }
+
+  function sendMsgReact(id, emoji) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'msgreact', id, emoji }));
+  }
+
+  // Create or update a reaction chip; `bump` animates it on live updates.
+  function setChip(chipsEl, id, emoji, count, bump) {
+    let chip = chipsEl.querySelector('[data-emoji="' + emoji + '"]');
+    if (!chip) {
+      chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.dataset.emoji = emoji;
+      chip.addEventListener('click', () => sendMsgReact(id, emoji));
+      chipsEl.appendChild(chip);
+    }
+    chip.textContent = '';
+    const e = document.createElement('span');
+    e.textContent = emoji;
+    const n = document.createElement('span');
+    n.textContent = String(count);
+    chip.appendChild(e);
+    chip.appendChild(n);
+    if (bump) {
+      chip.classList.remove('bump');
+      void chip.offsetWidth; // restart animation
+      chip.classList.add('bump');
+    }
+  }
+
+  function applyReaction(id, emoji, count) {
+    const div = msgEls.get(id);
+    if (!div) return; // message not in view (older than window)
+    const chips = div.querySelector('.msg-reactions');
+    if (chips) setChip(chips, id, emoji, count, true);
   }
 
   function addSystem(text) {
