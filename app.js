@@ -184,7 +184,14 @@
     hint.textContent = 'Watch the recording below — with playback and volume controls.';
     const btn = document.createElement('button'); btn.className = 'play-btn'; btn.type = 'button';
     btn.textContent = '▶  Watch the recording';
-    btn.addEventListener('click', () => { standby.classList.add('hidden'); video.muted = false; video.play().catch(() => {}); });
+    btn.addEventListener('click', () => {
+      standby.classList.add('hidden');
+      video.muted = false;
+      // Start from the beginning of the available range (0 for a true VOD; the
+      // DVR window start for an event whose VOD hasn't finalized yet).
+      try { if (video.seekable && video.seekable.length) video.currentTime = video.seekable.start(0); } catch (_e) {}
+      video.play().catch(() => {});
+    });
     card.append(h1, sub, hint, btn);
   }
 
